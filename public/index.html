@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Motion Studio</title>
+  <meta name="description" content="Describe an animation in plain words and get a motion graphics video.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%238b5cf6'/%3E%3Cstop offset='1' stop-color='%23ec4899'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M12 9l12 7-12 7z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="importmap">
+    { "imports": { "mediabunny": "/vendor/mediabunny.mjs", "gifenc": "/vendor/gifenc.mjs" } }
+  </script>
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Motion Studio</span>
+    </div>
+    <nav class="topbar-actions">
+      <button id="library-btn" class="btn ghost" type="button" aria-label="Library">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v4H4zM14 15h6v4h-6z"/></svg>
+        <span class="btn-text">Library</span>
+      </button>
+      <button id="settings-btn" class="btn ghost" type="button" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        <span class="btn-text">Settings</span>
+      </button>
+    </nav>
+  </header>
+
+  <div id="key-banner" class="banner" hidden>
+    <span>Add your Anthropic API key to start generating animations. The samples in the Library work without one.</span>
+    <button id="banner-settings" class="btn small" type="button">Add API key</button>
+  </div>
+
+  <main class="layout">
+    <aside class="panel">
+      <section class="card compose">
+        <label class="label" for="prompt">Describe your animation</label>
+        <textarea id="prompt" rows="5" maxlength="4000" placeholder="e.g. A neon logo reveal for “NOVA” with glowing particles that converge into the letters"></textarea>
+        <div class="chips" id="ideas" aria-label="Prompt ideas"></div>
+        <div class="settings-row">
+          <label class="field">
+            <span>Format</span>
+            <select id="aspect">
+              <option value="16:9">16:9 Landscape</option>
+              <option value="9:16">9:16 Vertical</option>
+              <option value="1:1">1:1 Square</option>
+              <option value="4:5">4:5 Portrait</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Length</span>
+            <select id="duration">
+              <option value="3">3 s</option>
+              <option value="4">4 s</option>
+              <option value="5">5 s</option>
+              <option value="6">6 s</option>
+              <option value="8">8 s</option>
+              <option value="10">10 s</option>
+              <option value="15">15 s</option>
+              <option value="20">20 s</option>
+              <option value="30">30 s</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>FPS</span>
+            <select id="fps">
+              <option value="30">30</option>
+              <option value="60">60</option>
+            </select>
+          </label>
+        </div>
+        <button id="generate-btn" class="btn primary block" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
+          Generate animation
+        </button>
+        <p class="hint">Tip: press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to generate.</p>
+      </section>
+
+      <section id="activity" class="card activity" hidden>
+        <div class="activity-head">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="activity-label">Thinking…</span>
+          <button id="stop-btn" class="btn small ghost" type="button">Stop</button>
+        </div>
+        <details id="thinking-box">
+          <summary>Claude's thinking</summary>
+          <div id="thinking" class="thinking"></div>
+        </details>
+      </section>
+
+      <section id="error-card" class="card error-card" hidden>
+        <div class="error-title">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+          <strong id="error-heading">Something went wrong</strong>
+        </div>
+        <p id="error-text"></p>
+        <div class="error-actions">
+          <button id="fix-btn" class="btn small primary" type="button">Fix with Claude</button>
+          <button id="dismiss-btn" class="btn small ghost" type="button">Dismiss</button>
+        </div>
+      </section>
+
+      <section id="refine" class="card refine" hidden>
+        <label class="label" for="refine-input">Refine this animation</label>
+        <div class="refine-row">
+          <input id="refine-input" type="text" maxlength="4000" placeholder="Make the text bigger, use warmer colors…" autocomplete="off">
+          <button id="refine-btn" class="btn primary" type="button" aria-label="Apply change">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="chips" id="refine-ideas"></div>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="workspace-head">
+        <div class="title-block">
+          <h1 id="anim-title">Motion Studio</h1>
+          <p id="anim-desc"></p>
+        </div>
+        <div class="tabs" role="tablist">
+          <button class="tab active" role="tab" data-tab="preview" aria-selected="true" type="button">Preview</button>
+          <button class="tab" role="tab" data-tab="code" aria-selected="false" type="button">Code</button>
+        </div>
+      </div>
+
+      <div id="versions" class="versions" hidden></div>
+
+      <div class="view" id="preview-view">
+        <div class="stage-wrap">
+          <div class="stage" id="stage"></div>
+          <div class="stage-overlay" id="stage-overlay" hidden>
+            <div class="overlay-box">
+              <div class="pulse" aria-hidden="true"></div>
+              <strong id="overlay-title">Claude is thinking…</strong>
+              <span id="overlay-sub"></span>
+              <div class="progress" id="overlay-progress" hidden><div class="progress-bar" id="overlay-bar"></div></div>
+              <button id="overlay-cancel" class="btn small ghost" type="button" hidden>Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="transport">
+          <button id="play-btn" class="icon-btn" type="button" aria-label="Play">
+            <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+          </button>
+          <button id="restart-btn" class="icon-btn" type="button" aria-label="Restart">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg>
+          </button>
+          <input id="scrubber" class="scrubber" type="range" min="0" max="1000" step="1" value="0" aria-label="Timeline">
+          <span id="time-label" class="time">0.0 / 6.0 s</span>
+          <button id="loop-btn" class="icon-btn active" type="button" aria-label="Loop" aria-pressed="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></svg>
+          </button>
+        </div>
+
+        <div class="export-row">
+          <span class="export-label">Export</span>
+          <button class="btn small" data-export="mp4" type="button" title="MP4 (H.264). Browsers that can't encode H.264 get a WebM file instead.">MP4 video</button>
+          <button class="btn small" data-export="gif" type="button">GIF</button>
+          <button class="btn small" data-export="png" type="button">PNG frame</button>
+          <button class="btn small" data-export="html" type="button">HTML</button>
+        </div>
+      </div>
+
+      <div class="view" id="code-view" hidden>
+        <textarea id="code" class="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Animation code"></textarea>
+        <div class="code-actions">
+          <button id="run-btn" class="btn primary small" type="button">Run code</button>
+          <button id="copy-btn" class="btn small ghost" type="button">Copy</button>
+          <span class="hint">Edits are saved as a new version.</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="settings-dialog" class="dialog">
+    <form method="dialog" class="dialog-body" id="settings-form">
+      <h2>Settings</h2>
+      <label class="label" for="api-key">Anthropic API key</label>
+      <div class="key-row">
+        <input id="api-key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+        <button id="toggle-key" class="btn small ghost" type="button">Show</button>
+      </div>
+      <p class="hint" id="key-hint">Stored only in this browser. It is sent to your Motion Studio server, which uses it to call Claude. Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
+      <p class="hint" id="model-hint"></p>
+      <div class="dialog-actions">
+        <button class="btn ghost" value="cancel" type="submit">Cancel</button>
+        <button class="btn primary" value="save" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="library-dialog" class="dialog wide">
+    <div class="dialog-body">
+      <div class="dialog-head">
+        <h2>Library</h2>
+        <button id="library-close" class="btn small ghost" type="button">Close</button>
+      </div>
+      <h3>Your animations</h3>
+      <div id="library-projects" class="grid"></div>
+      <p id="library-empty" class="hint">Animations you generate are saved here, in this browser.</p>
+      <h3>Samples</h3>
+      <div id="library-samples" class="grid"></div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
