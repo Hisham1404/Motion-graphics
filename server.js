@@ -9,8 +9,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
-const MODEL = process.env.MOTION_STUDIO_MODEL || 'claude-opus-5';
-const EFFORT = process.env.MOTION_STUDIO_EFFORT || 'high';
+const MODEL = process.env.MOTION_STUDIO_MODEL || 'claude-opus-5-5';
+const EFFORT = process.env.MOTION_STUDIO_EFFORT || 'medium';
 // Server-side refusal fallbacks: if Claude declines a request, the API retries it on
 // Anthropic's recommended fallback model instead of returning the refusal.
 const FALLBACKS = process.env.MOTION_STUDIO_FALLBACKS !== 'off';
@@ -27,18 +27,6 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(here, 'public')));
-
-// Browser builds of the export libraries, served straight from node_modules.
-const vendor = {
-  'mediabunny.mjs': 'node_modules/mediabunny/dist/bundles/mediabunny.min.mjs',
-  'gifenc.mjs': 'node_modules/gifenc/dist/gifenc.esm.js',
-};
-app.get('/vendor/:file', (req, res, next) => {
-  const file = vendor[req.params.file];
-  if (!file) return next();
-  res.type('text/javascript');
-  res.sendFile(path.join(here, file));
-});
 
 app.get('/api/status', (req, res) => {
   res.json({ model: MODEL, serverKey: hasServerCredentials });
@@ -164,7 +152,10 @@ app.post('/api/generate', async (req, res) => {
   res.end();
 });
 
-app.listen(PORT, HOST, () => {
+// On Vercel the exported app is wrapped in a function; locally we run our own server.
+export default app;
+
+if (!process.env.VERCEL) app.listen(PORT, HOST, () => {
   console.log(`\n  Motion Studio is running at http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}\n`);
   console.log(`  Model: ${MODEL} · effort: ${EFFORT}`);
   if (!hasServerCredentials) {

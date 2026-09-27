@@ -54,7 +54,7 @@ sandboxed <iframe> (public/sandbox.html)
   runs render(ctx, t) for every frame on a <canvas>
 ```
 
-- **`server.js`** is an Express server. It serves the app and forwards generation requests to Claude with the official `@anthropic-ai/sdk`, streaming the reply back to the browser. It uses `claude-opus-5` with adaptive thinking. Server-side refusal fallbacks are turned on: if the model declines a request, the API retries it on a fallback model instead of failing.
+- **`server.js`** is an Express server. It serves the app and forwards generation requests to Claude with the official `@anthropic-ai/sdk`, streaming the reply back to the browser. It uses Claude Opus 5.5 (`claude-opus-5-5`) with adaptive thinking at `medium` effort. Server-side refusal fallbacks are turned on: if the model declines a request, the API retries it on a fallback model instead of failing.
 - **`lib/prompt.js`** holds the instructions Claude follows: the animation contract, the helper library, motion-design guidance and the output format.
 - **`public/sandbox.html`** is the animation runtime. It provides helpers for easing, springs, seeded randomness, noise, text layout, shapes and film grain. Generated code runs inside an iframe sandboxed **without** `allow-same-origin`, and a Content Security Policy blocks network access. This means animation code can't touch the app, your API key, or the internet.
 - Each animation is a *pure function of time*: `render(ctx, t)` draws the frame at `t` seconds. That's what makes scrubbing and frame-perfect export possible.
@@ -69,16 +69,24 @@ All settings are optional environment variables. You can put them in `.env`:
 | `ANTHROPIC_API_KEY` | none | Your API key. You can also enter it in the app's Settings instead. |
 | `PORT` | `3000` | Port for the web server. |
 | `HOST` | `127.0.0.1` | Set to `0.0.0.0` to open the app to other devices on your network. |
-| `MOTION_STUDIO_MODEL` | `claude-opus-5` | The Claude model to use. |
-| `MOTION_STUDIO_EFFORT` | `high` | How hard Claude thinks: `low`, `medium`, `high`, `xhigh` or `max`. Higher is slower but usually more polished. |
+| `MOTION_STUDIO_MODEL` | `claude-opus-5-5` | The Claude model to use. |
+| `MOTION_STUDIO_EFFORT` | `medium` | How hard Claude thinks: `low`, `medium`, `high`, `xhigh` or `max`. Higher is slower but can be more polished. |
 | `MOTION_STUDIO_FALLBACKS` | on | Set to `off` to disable automatic retry on a fallback model. |
 
 > **Security note:** the server spends the API key in `.env` on behalf of anyone who can reach it. Keep the default `HOST=127.0.0.1` unless you trust your network. Don't put the server on the public internet with your key configured.
+
+## Deploying to Vercel
+
+The repository deploys to [Vercel](https://vercel.com) as-is: Vercel detects the Express app in `server.js`, serves `public/` from its CDN, and runs `/api/generate` as a function. `vercel.json` raises the function time limit to 300 seconds, because a generation can take a few minutes. That's the most the free Hobby plan allows.
+
+Leave `ANTHROPIC_API_KEY` unset on a public deployment. Each visitor then enters their own key in **Settings**. The key stays in their browser and is only forwarded to Anthropic. If you do set a key on Vercel, anyone who finds the URL can spend it.
 
 ## Project layout
 
 ```
 server.js              Express server + Claude streaming endpoint
+vercel.json            Function time limit for Vercel
+scripts/copy-vendor.js Copies the export libraries into public/vendor on install
 lib/prompt.js          System prompt and request builder
 public/index.html      App shell
 public/styles.css      Styles

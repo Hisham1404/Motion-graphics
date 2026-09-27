@@ -43,7 +43,9 @@ export async function generate(body, { apiKey, signal, onThinking, onText, onSta
       else if (event === 'done') result = data;
     }
   }
-  if (!result) throw new Error('The connection closed before the animation was finished.');
+  if (!result) {
+    throw new Error('The connection closed before the animation was finished (the server may have timed out). Try again, or try a simpler brief.');
+  }
   return result;
 }
 
