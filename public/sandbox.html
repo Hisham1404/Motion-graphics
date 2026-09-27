@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Generated code runs here, in an iframe sandboxed without allow-same-origin.
+     The CSP blocks network access so animation code cannot send data anywhere. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: blob:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion Studio animation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;600;700;800;900&family=JetBrains+Mono:wght@400;700&family=Montserrat:wght@300;400;700;900&family=Orbitron:wght@400;700;900&family=Pacifico&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Poppins:wght@300;400;600;700;800&family=Space+Grotesk:wght@300;400;700&display=block">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  // ───────────────────────── Runtime state ─────────────────────────
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  let W = 1920, H = 1080, DURATION = 6, FPS = 60;
+  let program = null;       // { render, setup }
+  let time = 0, playing = false, looping = true, lastTs = null;
+  let failed = false;       // stop playing after a runtime error until reloaded
+
+  // ───────────────────────── Math & timing ─────────────────────────
+  const PI = Math.PI, TAU = Math.PI * 2;
+  const clamp = (x, min = 0, max = 1) => Math.min(max, Math.max(min, x));
+  const lerp = (a, b, p) => a + (b - a) * p;
+  const map = (x, inMin, inMax, outMin, outMax, clamped = true) => {
+    let p = (x - inMin) / (inMax - inMin || 1);
+    if (clamped) p = clamp(p);
+    return outMin + (outMax - outMin) * p;
+  };
+  const smoothstep = (e0, e1, x) => { const p = clamp((x - e0) / (e1 - e0 || 1)); return p * p * (3 - 2 * p); };
+  const fract = (x) => x - Math.floor(x);
+  const wrap = (x, min, max) => { const r = max - min; return r ? min + ((((x - min) % r) + r) % r) : min; };
+  const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+
+  const progress = (t, start, end) => clamp((t - start) / (end - start || 1e-9));
+  const loop = (t, period) => fract(t / period);
+  const pingpong = (t, period) => 1 - Math.abs(fract(t / period) * 2 - 1);
+
+  const c1 = 1.70158, c2 = c1 * 1.525, c3 = c1 + 1, c4 = TAU / 3, c5 = TAU / 4.5;
+  const bounceOut = (x) => {
+    const n1 = 7.5625, d1 = 2.75;
+    if (x < 1 / d1) return n1 * x * x;
+    if (x < 2 / d1) return n1 * (x -= 1.5 / d1) * x + 0.75;
+    if (x < 2.5 / d1) return n1 * (x -= 2.25 / d1) * x + 0.9375;
+    return n1 * (x -= 2.625 / d1) * x + 0.984375;
+  };
+  const rawEase = {
+    linear: (x) => x,
+    inQuad: (x) => x * x,
+    outQuad: (x) => 1 - (1 - x) * (1 - x),
+    inOutQuad: (x) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2),
+    inCubic: (x) => x * x * x,
+    outCubic: (x) => 1 - Math.pow(1 - x, 3),
+    inOutCubic: (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2),
+    inQuart: (x) => Math.pow(x, 4),
+    outQuart: (x) => 1 - Math.pow(1 - x, 4),
+    inOutQuart: (x) => (x < 0.5 ? 8 * Math.pow(x, 4) : 1 - Math.pow(-2 * x + 2, 4) / 2),
+    inQuint: (x) => Math.pow(x, 5),
+    outQuint: (x) => 1 - Math.pow(1 - x, 5),
+    inOutQuint: (x) => (x < 0.5 ? 16 * Math.pow(x, 5) : 1 - Math.pow(-2 * x + 2, 5) / 2),
+    inSine: (x) => 1 - Math.cos((x * PI) / 2),
+    outSine: (x) => Math.sin((x * PI) / 2),
+    inOutSine: (x) => -(Math.cos(PI * x) - 1) / 2,
+    inExpo: (x) => (x === 0 ? 0 : Math.pow(2, 10 * x - 10)),
+    outExpo: (x) => (x === 1 ? 1 : 1 - Math.pow(2, -10 * x)),
+    inOutExpo: (x) => (x === 0 ? 0 : x === 1 ? 1 : x < 0.5 ? Math.pow(2, 20 * x - 10) / 2 : (2 - Math.pow(2, -20 * x + 10)) / 2),
+    inCirc: (x) => 1 - Math.sqrt(1 - x * x),
+    outCirc: (x) => Math.sqrt(1 - Math.pow(x - 1, 2)),
+    inOutCirc: (x) => (x < 0.5 ? (1 - Math.sqrt(1 - Math.pow(2 * x, 2))) / 2 : (Math.sqrt(1 - Math.pow(-2 * x + 2, 2)) + 1) / 2),
+    inBack: (x) => c3 * x * x * x - c1 * x * x,
+    outBack: (x) => 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2),
+    inOutBack: (x) => (x < 0.5
+      ? (Math.pow(2 * x, 2) * ((c2 + 1) * 2 * x - c2)) / 2
+      : (Math.pow(2 * x - 2, 2) * ((c2 + 1) * (x * 2 - 2) + c2) + 2) / 2),
+    inElastic: (x) => (x === 0 ? 0 : x === 1 ? 1 : -Math.pow(2, 10 * x - 10) * Math.sin((x * 10 - 10.75) * c4)),
+    outElastic: (x) => (x === 0 ? 0 : x === 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1),
+    inOutElastic: (x) => (x === 0 ? 0 : x === 1 ? 1 : x < 0.5
+      ? -(Math.pow(2, 20 * x - 10) * Math.sin((20 * x - 11.125) * c5)) / 2
+      : (Math.pow(2, -20 * x + 10) * Math.sin((20 * x - 11.125) * c5)) / 2 + 1),
+    inBounce: (x) => 1 - bounceOut(1 - x),
+    outBounce: bounceOut,
+    inOutBounce: (x) => (x < 0.5 ? (1 - bounceOut(1 - 2 * x)) / 2 : (1 + bounceOut(2 * x - 1)) / 2),
+  };
+  const ease = {};
+  for (const [name, fn] of Object.entries(rawEase)) ease[name] = (x) => fn(clamp(x));
+  Object.freeze(ease);
+
+  const tween = (t, start, end, from, to, easing = ease.inOutCubic) => lerp(from, to, easing(progress(t, start, end)));
+  const stagger = (t, index, start, each, duration) => progress(t, start + index * each, start + index * each + duration);
+  const spring = (p, bounce = 0.5) => {
+    p = clamp(p);
+    if (p === 0 || p === 1) return p;
+    const b = clamp(bounce, 0, 1);
+    return 1 - Math.exp(-lerp(9, 4, b) * p) * Math.cos(lerp(1, 4.5, b) * PI * p);
+  };
+  const cubicBezier = (x1, y1, x2, y2) => {
+    const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+    const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+    const sx = (s) => ((ax * s + bx) * s + cx) * s;
+    const sy = (s) => ((ay * s + by) * s + cy) * s;
+    const dsx = (s) => (3 * ax * s + 2 * bx) * s + cx;
+    return (x) => {
+      x = clamp(x);
+      let s = x;
+      for (let i = 0; i < 8; i++) {
+        const err = sx(s) - x;
+        if (Math.abs(err) < 1e-6) return sy(s);
+        const d = dsx(s);
+        if (Math.abs(d) < 1e-6) break;
+        s -= err / d;
+      }
+      let lo = 0, hi = 1;
+      s = x;
+      for (let i = 0; i < 30; i++) {
+        const v = sx(s);
+        if (Math.abs(v - x) < 1e-6) break;
+        if (v < x) lo = s; else hi = s;
+        s = (lo + hi) / 2;
+      }
+      return sy(s);
+    };
+  };
+
+  // ───────────────────────── Randomness ─────────────────────────
+  const rand = (seed) => fract(Math.sin(seed * 127.1 + 311.7) * 43758.5453123);
+  const rng = (seed = 1) => {
+    let a = (Math.floor(seed * 9973) ^ 0x6d2b79f5) >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let x = a;
+      x = Math.imul(x ^ (x >>> 15), x | 1);
+      x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  const perm = new Uint8Array(512);
+  {
+    const p = Array.from({ length: 256 }, (_, i) => i);
+    const r = rng(1337);
+    for (let i = 255; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+    for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  }
+  const fade = (x) => x * x * x * (x * (x * 6 - 15) + 10);
+  const grad = (hash, x, y, z) => {
+    const h = hash & 15, u = h < 8 ? x : y, v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  };
+  const noise = (x, y = 0, z = 0) => {
+    const fx = Math.floor(x), fy = Math.floor(y), fz = Math.floor(z);
+    const X = fx & 255, Y = fy & 255, Z = fz & 255;
+    x -= fx; y -= fy; z -= fz;
+    const u = fade(x), v = fade(y), w = fade(z);
+    const A = perm[X] + Y, AA = perm[A] + Z, AB = perm[A + 1] + Z;
+    const B = perm[X + 1] + Y, BA = perm[B] + Z, BB = perm[B + 1] + Z;
+    return lerp(
+      lerp(lerp(grad(perm[AA], x, y, z), grad(perm[BA], x - 1, y, z), u),
+        lerp(grad(perm[AB], x, y - 1, z), grad(perm[BB], x - 1, y - 1, z), u), v),
+      lerp(lerp(grad(perm[AA + 1], x, y, z - 1), grad(perm[BA + 1], x - 1, y, z - 1), u),
+        lerp(grad(perm[AB + 1], x, y - 1, z - 1), grad(perm[BB + 1], x - 1, y - 1, z - 1), u), v),
+      w);
+  };
+
+  // ───────────────────────── Color ─────────────────────────
+  const hsl = (h, s, l, a = 1) => `hsla(${h}, ${s}%, ${l}%, ${a})`;
+  const rgba = (r, g, b, a = 1) => `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${a})`;
+  const parseHex = (hex) => {
+    let h = String(hex).trim().replace('#', '');
+    if (h.length === 3 || h.length === 4) h = h.split('').map((c) => c + c).join('');
+    const n = parseInt(h.slice(0, 6), 16);
+    return Number.isNaN(n) ? [0, 0, 0] : [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const mixColor = (a, b, p) => {
+    const x = parseHex(a), y = parseHex(b);
+    return rgba(lerp(x[0], y[0], p), lerp(x[1], y[1], p), lerp(x[2], y[2], p));
+  };
+  const withAlpha = (hex, a) => { const [r, g, b] = parseHex(hex); return rgba(r, g, b, a); };
+  const addStops = (gradient, stops) => {
+    stops.forEach((stop, i) => {
+      if (Array.isArray(stop)) gradient.addColorStop(clamp(stop[0]), stop[1]);
+      else gradient.addColorStop(stops.length > 1 ? i / (stops.length - 1) : 0, stop);
+    });
+    return gradient;
+  };
+  const linearGradient = (c, x0, y0, x1, y1, stops) => addStops(c.createLinearGradient(x0, y0, x1, y1), stops);
+  const radialGradient = (c, x, y, r, stops, innerRadius = 0) =>
+    addStops(c.createRadialGradient(x, y, Math.max(0, innerRadius), x, y, Math.max(0.001, r)), stops);
+
+  // ───────────────────────── Shapes ─────────────────────────
+  const circle = (c, x, y, r) => { c.beginPath(); c.arc(x, y, Math.max(0, r), 0, TAU); };
+  const ellipse = (c, x, y, rx, ry, rotation = 0) => { c.beginPath(); c.ellipse(x, y, Math.max(0, rx), Math.max(0, ry), rotation, 0, TAU); };
+  const roundRect = (c, x, y, w, h, r) => {
+    c.beginPath();
+    if (w < 0) { x += w; w = -w; }
+    if (h < 0) { y += h; h = -h; }
+    const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+    c.moveTo(x + rr, y);
+    c.arcTo(x + w, y, x + w, y + h, rr);
+    c.arcTo(x + w, y + h, x, y + h, rr);
+    c.arcTo(x, y + h, x, y, rr);
+    c.arcTo(x, y, x + w, y, rr);
+    c.closePath();
+  };
+  const polygon = (c, x, y, r, sides, rotation = 0) => {
+    c.beginPath();
+    for (let i = 0; i < sides; i++) {
+      const a = rotation - PI / 2 + (i / sides) * TAU;
+      i ? c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : c.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    c.closePath();
+  };
+  const star = (c, x, y, outerR, innerR, points = 5, rotation = 0) => {
+    c.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 ? innerR : outerR, a = rotation - PI / 2 + (i / (points * 2)) * TAU;
+      i ? c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : c.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    c.closePath();
+  };
+  const line = (c, x1, y1, x2, y2) => { c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); };
+  const polyline = (c, points, closed = false) => {
+    c.beginPath();
+    points.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+    if (closed) c.closePath();
+  };
+
+  // ───────────────────────── Text ─────────────────────────
+  const hasLetterSpacing = 'letterSpacing' in ctx;
+  const applyFont = (c, o = {}) => {
+    const size = o.size ?? 64, weight = o.weight ?? 700, font = o.font ?? 'Inter';
+    c.font = `${o.italic ? 'italic ' : ''}${weight} ${size}px "${font}", sans-serif`;
+    if (hasLetterSpacing) c.letterSpacing = `${o.letterSpacing ?? 0}px`;
+  };
+  const textWidth = (c, str, o = {}) => {
+    c.save();
+    applyFont(c, o);
+    const w = c.measureText(String(str)).width;
+    c.restore();
+    return w;
+  };
+  const text = (c, str, x, y, o = {}) => {
+    str = String(str);
+    c.save();
+    applyFont(c, o);
+    const align = o.align ?? 'center';
+    c.textAlign = align;
+    c.textBaseline = o.baseline ?? 'middle';
+    if (o.alpha != null) c.globalAlpha *= clamp(o.alpha);
+    // letterSpacing adds space after the last glyph too; recenter so the ink stays centered.
+    const spacing = hasLetterSpacing ? o.letterSpacing ?? 0 : 0;
+    const dx = align === 'center' ? spacing / 2 : align === 'right' || align === 'end' ? spacing : 0;
+    if (o.stroke) {
+      c.lineWidth = o.strokeWidth ?? 2;
+      c.lineJoin = 'round';
+      c.strokeStyle = o.stroke;
+      c.strokeText(str, x + dx, y);
+    }
+    if (o.color !== null) {
+      c.fillStyle = o.color ?? '#fff';
+      c.fillText(str, x + dx, y);
+    }
+    const w = c.measureText(str).width;
+    c.restore();
+    return w;
+  };
+  const layoutText = (c, str, o = {}) => {
+    str = String(str);
+    c.save();
+    applyFont(c, o);
+    const chars = [];
+    const spacing = o.letterSpacing ?? 0;
+    let x = 0;
+    for (const ch of str) {
+      if (hasLetterSpacing) c.letterSpacing = '0px';
+      const w = c.measureText(ch).width;
+      chars.push({ ch, x, w });
+      x += w + spacing;
+    }
+    c.restore();
+    return { width: Math.max(0, x - spacing), chars };
+  };
+  const wrapLines = (c, str, maxWidth, o = {}) => {
+    c.save();
+    applyFont(c, o);
+    const lines = [];
+    for (const paragraph of String(str).split('\n')) {
+      let current = '';
+      for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+        const test = current ? current + ' ' + word : word;
+        if (current && c.measureText(test).width > maxWidth) { lines.push(current); current = word; }
+        else current = test;
+      }
+      lines.push(current);
+    }
+    c.restore();
+    return lines;
+  };
+  // Largest font size (up to options.size) at which str fits within maxWidth.
+  const fitText = (c, str, maxWidth, o = {}) => {
+    let size = o.size ?? 64;
+    for (let i = 0; i < 3; i++) {
+      const spacing = (o.letterSpacing ?? 0) * (size / (o.size ?? 64));
+      const w = textWidth(c, str, { ...o, size, letterSpacing: spacing });
+      if (w <= maxWidth || w === 0) break;
+      size *= (maxWidth / w) * 0.995;
+    }
+    return size;
+  };
+  const typewriter = (str, p) => { const chars = Array.from(String(str)); return chars.slice(0, Math.floor(clamp(p) * chars.length + 1e-6)).join(''); };
+
+  // ───────────────────────── Composition ─────────────────────────
+  const withTransform = (c, o, draw) => {
+    c.save();
+    try {
+      c.translate(o.x ?? 0, o.y ?? 0);
+      if (o.rotate) c.rotate(o.rotate);
+      const s = o.scale ?? 1;
+      c.scale(o.scaleX ?? s, o.scaleY ?? s);
+      if (o.alpha != null) c.globalAlpha *= clamp(o.alpha);
+      draw(c);
+    } finally {
+      c.restore();
+    }
+  };
+  const vignette = (c, strength = 0.5, color = '#000') => {
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    const r = Math.hypot(canvas.width, canvas.height) / 2;
+    c.fillStyle = radialGradient(c, canvas.width / 2, canvas.height / 2, r, [[0, withAlpha(color, 0)], [0.55, withAlpha(color, 0)], [1, withAlpha(color, clamp(strength))]]);
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    c.restore();
+  };
+  let grainPattern = null;
+  const grain = (c, t, amount = 0.06) => {
+    if (!grainPattern) {
+      const tile = document.createElement('canvas');
+      tile.width = tile.height = 256;
+      const g = tile.getContext('2d');
+      const img = g.createImageData(256, 256);
+      const r = rng(99);
+      for (let i = 0; i < img.data.length; i += 4) {
+        const v = (r() * 255) | 0;
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+        img.data[i + 3] = 255;
+      }
+      g.putImageData(img, 0, 0);
+      grainPattern = ctx.createPattern(tile, 'repeat');
+    }
+    const frame = Math.floor(t * 24);
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.globalAlpha = clamp(amount);
+    c.globalCompositeOperation = 'overlay';
+    c.translate(-Math.floor(rand(frame) * 256), -Math.floor(rand(frame + 71) * 256));
+    c.fillStyle = grainPattern;
+    c.fillRect(0, 0, canvas.width + 256, canvas.height + 256);
+    c.restore();
+  };
+
+  const helpers = {
+    PI, TAU, clamp, lerp, map, smoothstep, fract, wrap, dist,
+    progress, tween, stagger, loop, pingpong, spring, ease, cubicBezier,
+    rand, rng, noise,
+    hsl, rgba, mixColor, withAlpha, linearGradient, radialGradient,
+    circle, ellipse, roundRect, polygon, star, line, polyline,
+    text, textWidth, fitText, layoutText, wrapLines, typewriter,
+    withTransform, vignette, grain,
+  };
+  const helperNames = Object.keys(helpers);
+
+  // ───────────────────────── Compiling user code ─────────────────────────
+  // The program is loaded as a script from a Blob URL so errors report accurate line
+  // numbers. It is wrapped in two functions: the outer one exposes the globals, the
+  // inner one holds the program, so the program may shadow any global name.
+  const PREFIX_LINES = 3;
+  let compileError = null;
+  let compiling = false;
+
+  window.addEventListener('error', (event) => {
+    if (!compiling) return;
+    event.preventDefault();
+    const fromProgram = event.filename && event.filename !== location.href;
+    const line = fromProgram ? event.lineno - PREFIX_LINES : 0;
+    compileError = { message: String(event.message).replace(/^Uncaught /, ''), line: line > 0 ? line : null };
+  });
+
+  function lineFromStack(error) {
+    const match = /animation\.js:(\d+)(?::\d+)?/.exec(error?.stack || '');
+    if (!match) return null;
+    const line = Number(match[1]) - PREFIX_LINES;
+    return line > 0 ? line : null;
+  }
+
+  function compile(code) {
+    const source = [
+      `window.__mgRegister((function (__g) {`,
+      `const { W, H, DURATION, FPS, ${helperNames.join(', ')} } = __g;`,
+      `return (function () {`,
+      code,
+      `;return { render: typeof render === 'function' ? render : null, setup: typeof setup === 'function' ? setup : null };`,
+      `})();`,
+      `})(window.__mgGlobals));`,
+      `//# sourceURL=animation.js`,
+    ].join('\n');
+
+    return new Promise((resolve, reject) => {
+      let registered = null;
+      window.__mgGlobals = Object.freeze({ W, H, DURATION, FPS, ...helpers });
+      window.__mgRegister = (value) => { registered = value; };
+      compileError = null;
+      compiling = true;
+      const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+      const script = document.createElement('script');
+      const finish = () => {
+        compiling = false;
+        script.remove();
+        URL.revokeObjectURL(url);
+        delete window.__mgGlobals;
+        delete window.__mgRegister;
+        if (compileError) reject(Object.assign(new Error(compileError.message), { line: compileError.line }));
+        else if (!registered || !registered.render) reject(new Error('The program must define a function named render(ctx, t).'));
+        else resolve(registered);
+      };
+      // A script with a syntax error still fires "load", after the window "error" event.
+      script.onload = finish;
+      script.onerror = () => {
+        compileError = compileError || { message: 'The program could not be loaded.', line: null };
+        finish();
+      };
+      script.src = url;
+      document.head.appendChild(script);
+    });
+  }
+
+  // ───────────────────────── Rendering ─────────────────────────
+  function resetContext() {
+    if (typeof ctx.reset === 'function') {
+      ctx.reset();
+    } else {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+      ctx.filter = 'none';
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+
+  // Returns null on success, or error details if the program threw.
+  function draw(t) {
+    if (!program) return null;
+    resetContext();
+    try {
+      program.render(ctx, t);
+      return null;
+    } catch (error) {
+      return { phase: 'render', message: String(error?.message || error), line: lineFromStack(error), time: t };
+    }
+  }
+
+  function fail(error) {
+    failed = true;
+    playing = false;
+    post({ type: 'error', ...error });
+    post({ type: 'state', playing, time });
+  }
+
+  function frame(ts) {
+    requestAnimationFrame(frame);
+    if (!playing || failed) { lastTs = null; return; }
+    if (lastTs !== null) time += Math.min(0.1, (ts - lastTs) / 1000);
+    lastTs = ts;
+    if (time >= DURATION) {
+      if (looping) time %= DURATION;
+      else { time = DURATION; playing = false; post({ type: 'state', playing, time }); }
+    }
+    const error = draw(time);
+    if (error) fail(error);
+    else post({ type: 'time', time });
+  }
+
+  // Compiles and sets up a program. With `check`, also renders a spread of moments
+  // across the timeline so runtime errors surface immediately instead of mid-playback.
+  async function load(msg) {
+    W = Math.round(msg.width);
+    H = Math.round(msg.height);
+    DURATION = msg.duration;
+    FPS = msg.fps;
+    canvas.width = W;
+    canvas.height = H;
+    grainPattern = null;
+    failed = true;
+    playing = false;
+    program = null;
+    let next;
+    try {
+      next = await compile(msg.code);
+      resetContext();
+      if (next.setup) next.setup();
+    } catch (error) {
+      resetContext();
+      return { phase: 'compile', message: String(error?.message || error), line: error.line ?? lineFromStack(error) };
+    }
+    program = next;
+    if (msg.check) {
+      const samples = 24;
+      for (let i = 0; i <= samples; i++) {
+        const error = draw((i / samples) * DURATION);
+        if (error) return error;
+      }
+    }
+    time = clamp(msg.time ?? 0, 0, DURATION);
+    const error = draw(time);
+    if (error) return error;
+    failed = false;
+    if (msg.autoplay) { playing = true; lastTs = null; }
+    return null;
+  }
+
+  // ───────────────────────── Messaging ─────────────────────────
+  const standalone = window.__STANDALONE__;
+  const post = (msg) => { if (!standalone) window.parent.postMessage(msg, '*'); };
+
+  async function handle(msg) {
+    switch (msg.type) {
+      case 'load': {
+        const error = await load(msg);
+        post({ type: 'loaded', id: msg.id, error });
+        post({ type: 'state', playing, time });
+        break;
+      }
+      case 'play':
+        if (!program || failed) break;
+        if (time >= DURATION && !looping) time = 0;
+        playing = true;
+        lastTs = null;
+        post({ type: 'state', playing, time });
+        break;
+      case 'pause':
+        playing = false;
+        post({ type: 'state', playing, time });
+        break;
+      case 'seek': {
+        time = clamp(msg.time, 0, DURATION);
+        if (failed) break;
+        const error = draw(time);
+        if (error) fail(error);
+        else post({ type: 'time', time });
+        break;
+      }
+      case 'loop':
+        looping = Boolean(msg.value);
+        break;
+      case 'frame': {
+        // Render an exact moment for export and hand back the pixels.
+        if (!program || failed) { post({ type: 'frame', id: msg.id, error: 'No animation loaded.' }); break; }
+        const error = draw(clamp(msg.time, 0, DURATION));
+        if (error) { post({ type: 'frame', id: msg.id, error: `The animation failed while rendering: ${error.message}` }); break; }
+        const bitmap = await createImageBitmap(canvas);
+        window.parent.postMessage({ type: 'frame', id: msg.id, bitmap }, '*', [bitmap]);
+        break;
+      }
+    }
+  }
+
+  // Fonts must be ready before the first frame, otherwise text would render in a
+  // fallback font and change mid-animation. Give up after a few seconds (offline).
+  const FACES = [
+    '400 16px "Inter"', '700 16px "Inter"', '800 16px "Inter"', '300 16px "Inter"', '600 16px "Inter"', '900 16px "Inter"',
+    '400 16px "Poppins"', '600 16px "Poppins"', '700 16px "Poppins"', '800 16px "Poppins"', '300 16px "Poppins"',
+    '400 16px "Montserrat"', '700 16px "Montserrat"', '900 16px "Montserrat"', '300 16px "Montserrat"',
+    '400 16px "Bebas Neue"',
+    '400 16px "Playfair Display"', '700 16px "Playfair Display"', '900 16px "Playfair Display"', 'italic 400 16px "Playfair Display"', 'italic 700 16px "Playfair Display"',
+    '400 16px "Space Grotesk"', '700 16px "Space Grotesk"', '300 16px "Space Grotesk"',
+    '400 16px "JetBrains Mono"', '700 16px "JetBrains Mono"',
+    '400 16px "Pacifico"',
+    '400 16px "Orbitron"', '700 16px "Orbitron"', '900 16px "Orbitron"',
+  ];
+  const fontsReady = Promise.race([
+    Promise.allSettled(FACES.map((face) => document.fonts.load(face, 'AaBb09'))),
+    new Promise((resolve) => setTimeout(resolve, 4000)),
+  ]);
+
+  let queue = Promise.resolve();
+  window.addEventListener('message', (event) => {
+    if (event.source !== window.parent || !event.data || typeof event.data.type !== 'string') return;
+    queue = queue.then(() => fontsReady).then(() => handle(event.data)).catch((error) => console.error(error));
+  });
+
+  fontsReady.then(async () => {
+    requestAnimationFrame(frame);
+    if (standalone) {
+      const error = await load({ ...standalone, autoplay: true });
+      if (error) console.error('Animation failed:', error.message);
+      const toggle = () => { if (!failed) { playing = !playing; lastTs = null; } };
+      window.addEventListener('click', toggle);
+      window.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); toggle(); } });
+    } else {
+      post({ type: 'ready' });
+    }
+  });
+})();
+</script>
+</body>
+</html>

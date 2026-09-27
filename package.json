@@ -1,0 +1,23 @@
+{
+  "name": "motion-studio",
+  "version": "1.0.0",
+  "description": "Type a prompt, get a motion graphics animation. Powered by Claude.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "postinstall": "node scripts/copy-vendor.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "gifenc": "^1.0.3",
+    "mediabunny": "^1.60.0"
+  }
+}
